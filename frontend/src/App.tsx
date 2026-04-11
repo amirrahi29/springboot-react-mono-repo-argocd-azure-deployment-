@@ -1,3 +1,3 @@
 export default function App() {
-  return <div>Frontend Moro Repo App (Spring Boot + ReactJs)...</div>;
+  return <div>Frontend Moro Repo App (Spring Boot + ReactJs) - Main Branch App</div>;
 }
