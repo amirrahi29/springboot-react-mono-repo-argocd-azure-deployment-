@@ -132,6 +132,7 @@ else
 fi
 kubectl delete job -n "$NS_APP" "$SMOKE_JOB" --ignore-not-found >/dev/null 2>&1 || true
 
+# Job command[] must be all YAML strings: bare "Accept: ..." becomes a mapping (object) and breaks the API.
 kubectl apply -f - <<EOF
 apiVersion: batch/v1
 kind: Job
@@ -147,13 +148,15 @@ spec:
       containers:
         - name: curl
           image: curlimages/curl:8.5.0
-          env:
-            - name: SMOKE_URL
-              value: "${URL}"
           command:
-            - /bin/sh
-            - -c
-            - exec curl ${CURL_FAMILY} -sfS --connect-timeout 30 -H 'Accept: application/json' "\$SMOKE_URL"
+            - "curl"
+            - "${CURL_FAMILY}"
+            - "-sfS"
+            - "--connect-timeout"
+            - "30"
+            - "-H"
+            - "Accept: application/json"
+            - "${URL}"
 EOF
 
 smoke_ok=0
