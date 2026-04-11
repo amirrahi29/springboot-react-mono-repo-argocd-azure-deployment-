@@ -20,6 +20,17 @@ Layout: **`backend/`** (Spring Boot) + **`frontend/`** (React + Vite), one **con
 | Fast Java tests | `./gradlew test -PskipWeb` (no npm) |
 | Frontend CI | `npm ci` in **`frontend/`** (lint + typecheck) |
 
+### Branches → AKS / Argo
+
+| Git branch | Argo app name | Kubernetes namespace | Helm overlay |
+|------------|---------------|----------------------|--------------|
+| `main` | `rahi-chat-app-main` | `main` | `values-main.yaml` |
+| `dev` | `rahi-chat-app-dev` | `dev` | `values-dev.yaml` |
+| `staging` | `rahi-chat-app-staging` | `staging` | `values-staging.yaml` |
+| `uat` | `rahi-chat-app-uat` | `uat` | `values-uat.yaml` |
+
+Push on a branch updates that branch’s image tag file and (on app/gitops changes) runs the matching deploy verify. Work on **`dev`** locally: `git checkout dev` — CI builds tag `dev-<sha>` and bumps **`values-dev.yaml`** on the **`dev`** branch; Argo syncs branch **`dev`** into namespace **`dev`**.
+
 ## Prerequisites
 
 - Java **17**, **Docker** (optional)
@@ -77,7 +88,7 @@ python3 gitops/apply-project-config.py --helm-all
 
 ## CI
 
-`.github/workflows/ci.yml`: backend tests in `backend/`, frontend lint/typecheck in `frontend/` (or all PRs), image build when `backend/**` or `frontend/**` changes, Helm, Argo (per branch policy).
+`.github/workflows/ci.yml`: runs on **`main`**, **`dev`**, **`staging`**, **`uat`**. Backend/frontend checks, image build + `values-<branch>.yaml` bump on app changes, Helm validate, Argo manifest apply on gitops changes (any of those branches), post-deploy verify using the **current branch name** as the target namespace / Argo app.
 
 ## Cursor / VS Code: `SpringApplication cannot be resolved` / `jdt.ls-java-project/bin`
 

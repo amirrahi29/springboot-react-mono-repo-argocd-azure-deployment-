@@ -1,5 +1,6 @@
 # backend/ (Spring Boot + Gradle) + frontend/ (React + Vite). Image build includes both.
-# Default branch `main`: Argo root apply + platform revision. Environments: Helm overlays + ApplicationSet.
+# Long-lived branches (main, dev, staging, uat): image tag → values-<branch>.yaml; Argo ApplicationSet syncs each branch to namespace with the same name.
+# git.platform_branch in project.yaml is only for the Argo "platform" bootstrap app source revision.
 name: Application delivery pipeline
 
 run-name: "${{ github.ref_name }} · ${{ github.event_name }}"
@@ -107,7 +108,7 @@ jobs:
     needs: changes
     if: |
       github.event_name == 'push' &&
-      github.ref == 'refs/heads/main' &&
+      contains(fromJSON('["main","dev","staging","uat"]'), github.ref_name) &&
       needs.changes.outputs.project_config == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -284,7 +285,7 @@ jobs:
       github.event_name == 'workflow_dispatch' ||
       (
         github.event_name == 'push' &&
-        github.ref == 'refs/heads/main' &&
+        contains(fromJSON('["main","dev","staging","uat"]'), github.ref_name) &&
         (
           needs.changes.outputs.gitops == 'true' ||
           needs.changes.outputs.project_config == 'true' ||
@@ -372,7 +373,7 @@ jobs:
         run: kubectl apply -n argocd -f gitops/argocd/applications/
 
   verify-main:
-    name: Production — verify health & automatic rollback
+    name: Deploy — verify health & automatic rollback
     needs: [changes, build, argocd-apply]
     if: |
       always() &&
@@ -380,7 +381,11 @@ jobs:
       (needs.build.result == 'success' || needs.build.result == 'skipped') &&
       (
         github.event_name == 'workflow_dispatch' ||
-        (github.event_name == 'push' && github.ref == 'refs/heads/main' && (needs.changes.outputs.app == 'true' || needs.changes.outputs.gitops == 'true'))
+        (
+          github.event_name == 'push' &&
+          contains(fromJSON('["main","dev","staging","uat"]'), github.ref_name) &&
+          (needs.changes.outputs.app == 'true' || needs.changes.outputs.gitops == 'true')
+        )
       )
     runs-on: ubuntu-latest
     timeout-minutes: 25
@@ -401,7 +406,7 @@ jobs:
         run: |
           if [ -z "${AKS_CLUSTER_NAME:-}" ] || [ -z "${AKS_RESOURCE_GROUP:-}" ]; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
-            echo "::notice::Skipping production verify — no AKS in gitops/project.yaml."
+            echo "::notice::Skipping deploy verify — no AKS in gitops/project.yaml."
           else
             echo "skip=false" >> "$GITHUB_OUTPUT"
           fi

@@ -1,4 +1,5 @@
-# Default Git branch: main — Argo platform app + kubectl apply use platform_branch.
+# platform_branch: Argo CD "platform" Application source revision only (bootstrap).
+# Per-env apps (dev/main/staging/uat) use the branch with the same name — see applicationset.yaml targetRevision: '{{env}}'.
 git:
   repo_url: https://github.com/amirrahi29/springboot-react-mono-repo-argocd-azure-deployment-.git
   platform_branch: main
