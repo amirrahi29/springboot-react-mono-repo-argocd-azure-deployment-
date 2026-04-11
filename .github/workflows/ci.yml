@@ -388,9 +388,14 @@ jobs:
         )
       )
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 20
     env:
       ARGOCD_CLI_VERSION: v2.12.6
+      # Shorter than script defaults so CI fails fast; see gitops/ci/verify-main.sh
+      VERIFY_INITIAL_SLEEP: "15"
+      VERIFY_POLL_SEC: "10"
+      ARGO_WAIT_SEC: "180"
+      ROLLOUT_TIMEOUT: "4m"
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4

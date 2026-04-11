@@ -26,15 +26,17 @@ rollback() {
     return 1
   fi
   export ARGOCD_NAMESPACE="${ARGO_NS:-argocd}"
-  _acd=(argocd --namespace "$ARGOCD_NAMESPACE")
   if ! kubectl get configmap argocd-cm -n "$ARGOCD_NAMESPACE" >/dev/null 2>&1; then
     echo "::warning::No ConfigMap argocd-cm in namespace $ARGOCD_NAMESPACE — set VERIFY_ARGO_NS if Argo CD is elsewhere."
   fi
-  if ! "${_acd[@]}" login --core; then
+  # CLI v2.12+: no global --namespace; Application CR lives in --app-namespace (rollback/login use Kubernetes API with --core).
+  if ! argocd login --core; then
     echo "::warning::argocd login --core failed; ensure CI kube identity can read $ARGOCD_NAMESPACE (e.g. argocd-cm)."
     return 1
   fi
-  "${_acd[@]}" app rollback "$ARGO_APP" || echo "::warning::Rollback CLI failed (RBAC, or no history yet)."
+  if ! argocd app rollback "$ARGO_APP" --app-namespace "$ARGOCD_NAMESPACE"; then
+    echo "::warning::Rollback CLI failed (RBAC, or no history yet)."
+  fi
 }
 
 echo "Initial pause for Git + Argo to reconcile..."
@@ -61,6 +63,8 @@ health="Unknown"
 sync="Unknown"
 elapsed=0
 degraded=0
+progressing_debug=0
+argo_fast_path=0
 while [[ $elapsed -lt "$ARGO_WAIT_SEC" ]]; do
   health=$(kubectl get application "$ARGO_APP" -n "$ARGO_NS" -o jsonpath='{.status.health.status}' 2>/dev/null || echo Unknown)
   sync=$(kubectl get application "$ARGO_APP" -n "$ARGO_NS" -o jsonpath='{.status.sync.status}' 2>/dev/null || echo Unknown)
@@ -72,6 +76,24 @@ while [[ $elapsed -lt "$ARGO_WAIT_SEC" ]]; do
     degraded=1
     break
   fi
+  # Argo health often lags after rollout; if Deployment is Available and fully ready, continue.
+  if [[ "$sync" == "Synced" && "$health" == "Progressing" && $elapsed -ge 30 ]]; then
+    avail=$(kubectl get deployment "$DEPLOY" -n "$NS_APP" -o jsonpath='{.status.conditions[?(@.type=="Available")].status}' 2>/dev/null || true)
+    want=$(kubectl get deployment "$DEPLOY" -n "$NS_APP" -o jsonpath='{.spec.replicas}' 2>/dev/null || echo 0)
+    have=$(kubectl get deployment "$DEPLOY" -n "$NS_APP" -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo 0)
+    if [[ "$avail" == "True" && -n "$want" && "$want" != "0" && "$have" == "$want" ]]; then
+      echo "::notice::Deployment $DEPLOY is Available (${have}/${want} ready); Argo still reports Progressing — continuing to smoke test."
+      argo_fast_path=1
+      break
+    fi
+  fi
+  if [[ "$health" == "Progressing" && $elapsed -ge 120 && $progressing_debug -eq 0 ]]; then
+    progressing_debug=1
+    echo "::group::Debug: Argo still Progressing after ${elapsed}s (pods / deployment)"
+    kubectl get pods -n "$NS_APP" -o wide 2>/dev/null || true
+    kubectl describe deployment "$DEPLOY" -n "$NS_APP" 2>/dev/null | tail -35 || true
+    echo "::endgroup::"
+  fi
   sleep "$STEP"
   elapsed=$((elapsed + STEP))
 done
@@ -82,7 +104,7 @@ if [[ "$degraded" == 1 ]]; then
   exit 1
 fi
 
-if [[ "$health" != "Healthy" || "$sync" != "Synced" ]]; then
+if [[ "$argo_fast_path" != "1" && ( "$health" != "Healthy" || "$sync" != "Synced" ) ]]; then
   echo "::error::Timeout waiting for Healthy+Synced (health=$health sync=$sync)."
   rollback || true
   exit 1
