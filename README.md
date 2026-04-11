@@ -29,7 +29,7 @@ Layout: **`backend/`** (Spring Boot) + **`frontend/`** (React + Vite), one **con
 | `staging` | `rahi-chat-app-staging` | `staging` | `values-staging.yaml` |
 | `uat` | `rahi-chat-app-uat` | `uat` | `values-uat.yaml` |
 
-Push on a branch updates that branch’s image tag file and (on app/gitops changes) runs the matching deploy verify. Work on **`dev`** locally: `git checkout dev` — CI builds tag `dev-<sha>` and bumps **`values-dev.yaml`** on the **`dev`** branch; Argo syncs branch **`dev`** into namespace **`dev`**.
+Push on a branch updates that branch’s image tag file and (on app/gitops changes) runs the matching deploy verify. **Example (`uat`):** `git checkout uat` → CI builds image tag **`uat-<short-sha>`**, commits **`values-uat.yaml`** on **`uat`**, and verify targets Argo app **`rahi-chat-app-uat`** / namespace **`uat`**. Same idea for **`dev`**, **`staging`**, **`main`** using the matching names from the table.
 
 ## Prerequisites
 
