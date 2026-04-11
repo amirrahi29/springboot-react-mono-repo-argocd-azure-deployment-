@@ -27,11 +27,12 @@ rollback() {
   fi
   export ARGOCD_NAMESPACE="${ARGO_NS:-argocd}"
   if ! kubectl get configmap argocd-cm -n "$ARGOCD_NAMESPACE" >/dev/null 2>&1; then
-    echo "::warning::No ConfigMap argocd-cm in namespace $ARGOCD_NAMESPACE — set VERIFY_ARGO_NS if Argo CD is elsewhere."
+    echo "::warning::Skip Argo rollback: no argocd-cm in namespace \"$ARGOCD_NAMESPACE\". Set \"argocd.namespace\" in gitops/project.yaml to the namespace where Argo CD is installed (same as Application CRs / argocd-server)."
+    return 0
   fi
-  # CLI v2.12+: no global --namespace; Application CR lives in --app-namespace (rollback/login use Kubernetes API with --core).
+  # CLI v2.12+: login --core reads argocd-cm from ARGOCD_NAMESPACE (must match install ns).
   if ! argocd login --core; then
-    echo "::warning::argocd login --core failed; ensure CI kube identity can read $ARGOCD_NAMESPACE (e.g. argocd-cm)."
+    echo "::warning::argocd login --core failed; check RBAC to ConfigMap/Secrets in $ARGOCD_NAMESPACE."
     return 1
   fi
   if ! argocd app rollback "$ARGO_APP" --app-namespace "$ARGOCD_NAMESPACE"; then
@@ -111,8 +112,15 @@ if [[ "$argo_fast_path" != "1" && ( "$health" != "Healthy" || "$sync" != "Synced
 fi
 
 APP_PORT="${VERIFY_APP_PORT:-8081}"
-URL="http://${DEPLOY}.${NS_APP}.svc.cluster.local:${APP_PORT}/api/healthz"
-echo "Smoke Job: GET $URL"
+# Hit ready Pod IP via Endpoints (same path as readiness probes); avoids Service DNS / dual-stack quirks vs kubelet.
+EP_IP=$(kubectl get endpoints "$DEPLOY" -n "$NS_APP" -o jsonpath='{.subsets[0].addresses[0].ip}' 2>/dev/null || true)
+if [[ -n "${EP_IP}" ]]; then
+  URL="http://${EP_IP}:${APP_PORT}/api/healthz"
+  echo "Smoke Job: GET $URL (Endpoints -> Pod IP, service $DEPLOY)"
+else
+  URL="http://${DEPLOY}.${NS_APP}.svc.cluster.local:${APP_PORT}/api/healthz"
+  echo "Smoke Job: GET $URL (Service DNS — no Endpoints yet)"
+fi
 kubectl delete job -n "$NS_APP" "$SMOKE_JOB" --ignore-not-found >/dev/null 2>&1 || true
 
 kubectl apply -f - <<EOF
@@ -132,9 +140,12 @@ spec:
           image: curlimages/curl:8.5.0
           command:
             - curl
+            - -4
             - -sfS
             - --connect-timeout
             - "30"
+            - -H
+            - Accept: application/json
             - ${URL}
 EOF
 

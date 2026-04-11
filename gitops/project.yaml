@@ -21,6 +21,7 @@ helm:
 
 argocd:
   app_prefix: rahi-chat-app
+  # namespace: argocd  # optional; GitHub Actions verify/rollback need argocd-cm in this namespace (default argocd)
 
 aks:
   resource_group: RahiResource
