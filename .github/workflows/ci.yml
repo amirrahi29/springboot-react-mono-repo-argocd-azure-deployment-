@@ -196,8 +196,29 @@ jobs:
       - name: Load project configuration
         run: python3 gitops/apply-project-config.py --github-env >> "$GITHUB_ENV"
 
+      - name: Resolve Azure login method
+        id: azure_login
+        env:
+          AZ_CREDS: ${{ secrets.AZURE_CREDENTIALS }}
+          AZ_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+        run: |
+          set -euo pipefail
+          if [ -n "${AZURE_CLIENT_ID:-}" ] && [ -n "${AZURE_TENANT_ID:-}" ] && [ -n "${AZURE_SUBSCRIPTION_ID:-}" ] && [ -n "${AZ_CLIENT_SECRET:-}" ]; then
+            echo "method=sp" >> "$GITHUB_OUTPUT"
+          elif [ -n "${AZ_CREDS:-}" ]; then
+            echo "method=creds" >> "$GITHUB_OUTPUT"
+          else
+            echo "method=none" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Require Azure authentication
+        if: steps.azure_login.outputs.method == 'none'
+        run: |
+          echo "::error::No Azure auth configured. Either: (1) set azure.client_id, azure.tenant_id, azure.subscription_id in gitops/project.yaml and repo secret AZURE_CLIENT_SECRET, or (2) set repo secret AZURE_CREDENTIALS (service principal JSON)."
+          exit 1
+
       - name: Sign in to Azure (service principal from project.yaml)
-        if: ${{ env.AZURE_CLIENT_ID != '' && env.AZURE_TENANT_ID != '' && env.AZURE_SUBSCRIPTION_ID != '' }}
+        if: steps.azure_login.outputs.method == 'sp'
         uses: azure/login@v2
         with:
           client-id: ${{ env.AZURE_CLIENT_ID }}
@@ -206,7 +227,7 @@ jobs:
           client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
 
       - name: Sign in to Azure (credentials JSON secret)
-        if: ${{ env.AZURE_CLIENT_ID == '' || env.AZURE_TENANT_ID == '' || env.AZURE_SUBSCRIPTION_ID == '' }}
+        if: steps.azure_login.outputs.method == 'creds'
         uses: azure/login@v2
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
@@ -295,8 +316,30 @@ jobs:
             echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Resolve Azure login method
+        id: azure_login
+        if: steps.gate.outputs.skip == 'false'
+        env:
+          AZ_CREDS: ${{ secrets.AZURE_CREDENTIALS }}
+          AZ_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+        run: |
+          set -euo pipefail
+          if [ -n "${AZURE_CLIENT_ID:-}" ] && [ -n "${AZURE_TENANT_ID:-}" ] && [ -n "${AZURE_SUBSCRIPTION_ID:-}" ] && [ -n "${AZ_CLIENT_SECRET:-}" ]; then
+            echo "method=sp" >> "$GITHUB_OUTPUT"
+          elif [ -n "${AZ_CREDS:-}" ]; then
+            echo "method=creds" >> "$GITHUB_OUTPUT"
+          else
+            echo "method=none" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Require Azure authentication
+        if: steps.gate.outputs.skip == 'false' && steps.azure_login.outputs.method == 'none'
+        run: |
+          echo "::error::No Azure auth configured. Either: (1) gitops/project.yaml azure.* ids + AZURE_CLIENT_SECRET, or (2) AZURE_CREDENTIALS JSON secret."
+          exit 1
+
       - name: Sign in to Azure (service principal from project.yaml)
-        if: ${{ steps.gate.outputs.skip == 'false' && env.AZURE_CLIENT_ID != '' && env.AZURE_TENANT_ID != '' && env.AZURE_SUBSCRIPTION_ID != '' }}
+        if: steps.gate.outputs.skip == 'false' && steps.azure_login.outputs.method == 'sp'
         uses: azure/login@v2
         with:
           client-id: ${{ env.AZURE_CLIENT_ID }}
@@ -305,7 +348,7 @@ jobs:
           client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
 
       - name: Sign in to Azure (credentials JSON secret)
-        if: ${{ steps.gate.outputs.skip == 'false' && (env.AZURE_CLIENT_ID == '' || env.AZURE_TENANT_ID == '' || env.AZURE_SUBSCRIPTION_ID == '') }}
+        if: steps.gate.outputs.skip == 'false' && steps.azure_login.outputs.method == 'creds'
         uses: azure/login@v2
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
@@ -371,8 +414,30 @@ jobs:
           echo "VERIFY_ARGO_APP=${ARGO_APP_PREFIX}-${BR}" >> "$GITHUB_ENV"
           echo "VERIFY_DEPLOYMENT=${ARGO_APP_PREFIX}-${BR}-${HELM_CHART_NAME}" >> "$GITHUB_ENV"
 
+      - name: Resolve Azure login method
+        id: azure_login
+        if: steps.gate.outputs.skip == 'false'
+        env:
+          AZ_CREDS: ${{ secrets.AZURE_CREDENTIALS }}
+          AZ_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+        run: |
+          set -euo pipefail
+          if [ -n "${AZURE_CLIENT_ID:-}" ] && [ -n "${AZURE_TENANT_ID:-}" ] && [ -n "${AZURE_SUBSCRIPTION_ID:-}" ] && [ -n "${AZ_CLIENT_SECRET:-}" ]; then
+            echo "method=sp" >> "$GITHUB_OUTPUT"
+          elif [ -n "${AZ_CREDS:-}" ]; then
+            echo "method=creds" >> "$GITHUB_OUTPUT"
+          else
+            echo "method=none" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Require Azure authentication
+        if: steps.gate.outputs.skip == 'false' && steps.azure_login.outputs.method == 'none'
+        run: |
+          echo "::error::No Azure auth configured. Either: (1) gitops/project.yaml azure.* ids + AZURE_CLIENT_SECRET, or (2) AZURE_CREDENTIALS JSON secret."
+          exit 1
+
       - name: Sign in to Azure (service principal from project.yaml)
-        if: ${{ steps.gate.outputs.skip == 'false' && env.AZURE_CLIENT_ID != '' && env.AZURE_TENANT_ID != '' && env.AZURE_SUBSCRIPTION_ID != '' }}
+        if: steps.gate.outputs.skip == 'false' && steps.azure_login.outputs.method == 'sp'
         uses: azure/login@v2
         with:
           client-id: ${{ env.AZURE_CLIENT_ID }}
@@ -381,7 +446,7 @@ jobs:
           client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
 
       - name: Sign in to Azure (credentials JSON secret)
-        if: ${{ steps.gate.outputs.skip == 'false' && (env.AZURE_CLIENT_ID == '' || env.AZURE_TENANT_ID == '' || env.AZURE_SUBSCRIPTION_ID == '') }}
+        if: steps.gate.outputs.skip == 'false' && steps.azure_login.outputs.method == 'creds'
         uses: azure/login@v2
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
