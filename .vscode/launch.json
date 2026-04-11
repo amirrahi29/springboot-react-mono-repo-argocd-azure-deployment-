@@ -1,0 +1,30 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "java",
+      "name": "ChatAppApplication",
+      "request": "launch",
+      "mainClass": "com.chat.app.ChatAppApplication",
+      "projectName": ""
+    },
+    {
+      "type": "java",
+      "name": "Spring Boot (Gradle — open rahi-chat.code-workspace)",
+      "request": "launch",
+      "mainClass": "com.chat.app.ChatAppApplication",
+      "projectName": "rahi-chat-backend",
+      "cwd": "${workspaceFolder}/backend",
+      "preLaunchTask": "backend: classes (includes frontend build)"
+    },
+    {
+      "type": "java",
+      "name": "Spring Boot (if workspaceFolder IS backend)",
+      "request": "launch",
+      "mainClass": "com.chat.app.ChatAppApplication",
+      "projectName": "rahi-chat-backend",
+      "cwd": "${workspaceFolder}",
+      "preLaunchTask": "backend: classes (includes frontend build)"
+    }
+  ]
+}

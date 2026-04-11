@@ -1,0 +1,8 @@
+.git
+**/.gradle
+**/build
+**/node_modules
+node_modules
+frontend/dist
+**/.DS_Store
+*.md

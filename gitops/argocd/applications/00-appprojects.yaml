@@ -1,0 +1,96 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: rahi-chat-app-dev
+  namespace: argocd
+spec:
+  description: rahi-chat-app - dev
+  sourceRepos:
+  - '*'
+  destinations:
+  - name: in-cluster
+    namespace: dev
+    server: https://kubernetes.default.svc
+  namespaceResourceWhitelist:
+  - group: '*'
+    kind: '*'
+  clusterResourceWhitelist:
+  - group: ''
+    kind: Namespace
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: rahi-chat-app-main
+  namespace: argocd
+spec:
+  description: rahi-chat-app - main
+  sourceRepos:
+  - '*'
+  destinations:
+  - name: in-cluster
+    namespace: main
+    server: https://kubernetes.default.svc
+  namespaceResourceWhitelist:
+  - group: '*'
+    kind: '*'
+  clusterResourceWhitelist:
+  - group: ''
+    kind: Namespace
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: rahi-chat-app-staging
+  namespace: argocd
+spec:
+  description: rahi-chat-app - staging
+  sourceRepos:
+  - '*'
+  destinations:
+  - name: in-cluster
+    namespace: staging
+    server: https://kubernetes.default.svc
+  namespaceResourceWhitelist:
+  - group: '*'
+    kind: '*'
+  clusterResourceWhitelist:
+  - group: ''
+    kind: Namespace
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: rahi-chat-app-uat
+  namespace: argocd
+spec:
+  description: rahi-chat-app - uat
+  sourceRepos:
+  - '*'
+  destinations:
+  - name: in-cluster
+    namespace: uat
+    server: https://kubernetes.default.svc
+  namespaceResourceWhitelist:
+  - group: '*'
+    kind: '*'
+  clusterResourceWhitelist:
+  - group: ''
+    kind: Namespace
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: rahi-chat-app-platform
+  namespace: argocd
+spec:
+  description: rahi-chat-app - Argo CD platform manifests
+  sourceRepos:
+  - '*'
+  destinations:
+  - name: in-cluster
+    namespace: argocd
+    server: https://kubernetes.default.svc
+  namespaceResourceWhitelist:
+  - group: '*'
+    kind: '*'

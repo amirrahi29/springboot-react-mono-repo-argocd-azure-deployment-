@@ -1,0 +1,26 @@
+# Default Git branch: main — Argo platform app + kubectl apply use platform_branch.
+git:
+  repo_url: https://github.com/amirrahi29/springboot-argocd-deployment.git
+  platform_branch: main
+  platform_path: gitops/argocd/platform
+
+azure:
+  acr_name: rahicontaineregistry
+  acr_login_server: rahicontaineregistry.azurecr.io
+  tenant_id:
+  subscription_id:
+  client_id:
+
+app:
+  image_name: rahi-chat-app
+
+helm:
+  chart_path: gitops/helm/rahi-chat-app
+  version: v3.14.4
+
+argocd:
+  app_prefix: rahi-chat-app
+
+aks:
+  resource_group: RahiResource
+  cluster_name: ChatAppCluster

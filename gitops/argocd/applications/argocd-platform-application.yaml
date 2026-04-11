@@ -1,0 +1,20 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: argocd-platform
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: rahi-chat-app-gitops
+spec:
+  project: rahi-chat-app-platform
+  source:
+    repoURL: https://github.com/amirrahi29/springboot-argocd-deployment.git
+    targetRevision: main
+    path: gitops/argocd/platform
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: false
+      selfHeal: true

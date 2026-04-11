@@ -1,0 +1,413 @@
+# backend/ (Spring Boot + Gradle) + frontend/ (React + Vite). Image build includes both.
+# Default branch `main`: Argo root apply + platform revision. Environments: Helm overlays + ApplicationSet.
+name: Application delivery pipeline
+
+run-name: "${{ github.ref_name }} · ${{ github.event_name }}"
+
+on:
+  push:
+    branches: [main, dev, staging, uat]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: delivery-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  changes:
+    name: Path detection
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      app: ${{ steps.filter.outputs.app }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+      gitops: ${{ steps.filter.outputs.gitops }}
+      project_config: ${{ steps.filter.outputs.project_config }}
+      workflow: ${{ steps.filter.outputs.workflow }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Evaluate changed paths
+        uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            app:
+              - 'backend/**'
+              - 'frontend/**'
+            frontend:
+              - 'frontend/**'
+            gitops:
+              - 'gitops/**'
+            project_config:
+              - 'gitops/project.yaml'
+              - 'gitops/apply-project-config.py'
+            workflow:
+              - '.github/workflows/**'
+
+  audit:
+    name: Security — JVM build & tests (Gradle)
+    needs: changes
+    if: github.event_name == 'pull_request' || needs.changes.outputs.app == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: Gradle test
+        run: chmod +x gradlew && ./gradlew test --no-daemon -PskipWeb
+
+  frontend-quality:
+    name: Frontend — lint & typecheck
+    needs: changes
+    if: github.event_name == 'pull_request' || needs.changes.outputs.frontend == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npm run typecheck
+
+  render:
+    name: GitOps — render manifests from project config
+    needs: changes
+    if: |
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main' &&
+      needs.changes.outputs.project_config == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: Install PyYAML
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq python3-yaml
+
+      - name: Load project configuration
+        run: python3 gitops/apply-project-config.py --github-env >> "$GITHUB_ENV"
+
+      - name: Synchronize Argo CD sources and base Helm values
+        run: python3 gitops/apply-project-config.py --sync-files
+
+      - name: Commit and push GitOps updates
+        run: |
+          set -euo pipefail
+          BR="${GITHUB_REF_NAME}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add gitops/argocd/applications/00-appprojects.yaml \
+            gitops/argocd/applications/applicationset.yaml \
+            gitops/argocd/applications/argocd-platform-application.yaml \
+            "${CHART}/values.yaml"
+          git diff --staged --quiet && exit 0
+          git commit -m "chore(gitops): sync from gitops/project.yaml"
+          for i in 1 2 3 4 5; do
+            git pull --rebase origin "$BR" && git push origin "$BR" && exit 0
+            sleep $((i * 4))
+          done
+          exit 1
+
+  helm:
+    name: Validate — Helm chart (all environments)
+    needs: changes
+    if: |
+      github.event_name == 'pull_request' ||
+      needs.changes.outputs.gitops == 'true' ||
+      needs.changes.outputs.project_config == 'true' ||
+      needs.changes.outputs.workflow == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install PyYAML
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq python3-yaml
+
+      - name: Load project configuration
+        run: python3 gitops/apply-project-config.py --github-env >> "$GITHUB_ENV"
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: ${{ env.HELM_VERSION }}
+
+      - name: Template Helm chart for every overlay
+        run: python3 gitops/apply-project-config.py --helm-all
+
+  build:
+    name: Build & publish — container image
+    needs: changes
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && needs.changes.outputs.app == 'true')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: Install PyYAML
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq python3-yaml
+
+      - name: Load project configuration
+        run: python3 gitops/apply-project-config.py --github-env >> "$GITHUB_ENV"
+
+      - name: Sign in to Azure (service principal from project.yaml)
+        if: ${{ env.AZURE_CLIENT_ID != '' && env.AZURE_TENANT_ID != '' && env.AZURE_SUBSCRIPTION_ID != '' }}
+        uses: azure/login@v2
+        with:
+          client-id: ${{ env.AZURE_CLIENT_ID }}
+          tenant-id: ${{ env.AZURE_TENANT_ID }}
+          subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
+          client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
+
+      - name: Sign in to Azure (credentials JSON secret)
+        if: ${{ env.AZURE_CLIENT_ID == '' || env.AZURE_TENANT_ID == '' || env.AZURE_SUBSCRIPTION_ID == '' }}
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Verify Azure subscription and ACR
+        run: |
+          set -euo pipefail
+          az account show -o table
+          az acr show -n "$ACR_NAME" --query "{name:name,loginServer:loginServer}" -o table
+
+      - name: Set image branch and tag
+        run: |
+          echo "BRANCH=${GITHUB_REF#refs/heads/}" >> "$GITHUB_ENV"
+          echo "IMAGE_TAG=${GITHUB_REF#refs/heads/}-$(git rev-parse --short HEAD)" >> "$GITHUB_ENV"
+
+      - name: Sign in to Azure Container Registry
+        run: az acr login --name "$ACR_NAME"
+
+      - name: Build and push container image
+        run: |
+          docker build -f backend/Dockerfile -t "${ACR_LOGIN_SERVER}/${IMAGE_NAME}:${IMAGE_TAG}" .
+          docker push "${ACR_LOGIN_SERVER}/${IMAGE_NAME}:${IMAGE_TAG}"
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: ${{ env.HELM_VERSION }}
+
+      - name: Update Helm values with new image reference
+        run: python3 gitops/apply-project-config.py --patch-values-image
+
+      - name: Validate Helm template for current branch
+        run: python3 gitops/apply-project-config.py --helm-branch "$BRANCH"
+
+      - name: Commit and push environment values
+        run: |
+          set -euo pipefail
+          BR="${GITHUB_REF_NAME}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$CHART/values-${BRANCH}.yaml"
+          git diff --staged --quiet && exit 0
+          git commit -m "chore(gitops): bump ${IMAGE_NAME} ${IMAGE_TAG}"
+          for i in 1 2 3 4 5; do
+            git pull --rebase origin "$BR" && git push origin "$BR" && exit 0
+            sleep $((i * 4))
+          done
+          exit 1
+
+  argocd-apply:
+    name: Cluster — sync Argo CD application manifests
+    needs: changes
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      (
+        github.event_name == 'push' &&
+        github.ref == 'refs/heads/main' &&
+        (
+          needs.changes.outputs.gitops == 'true' ||
+          needs.changes.outputs.project_config == 'true' ||
+          needs.changes.outputs.workflow == 'true'
+        )
+      )
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    concurrency:
+      group: argocd-cluster-sync
+      cancel-in-progress: false
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install PyYAML
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq python3-yaml
+
+      - name: Load project configuration
+        run: python3 gitops/apply-project-config.py --github-env >> "$GITHUB_ENV"
+
+      - name: Check AKS configuration
+        id: gate
+        run: |
+          if [ -z "${AKS_CLUSTER_NAME:-}" ] || [ -z "${AKS_RESOURCE_GROUP:-}" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::No aks.resource_group / aks.cluster_name in gitops/project.yaml — skipping apply."
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Sign in to Azure (service principal from project.yaml)
+        if: ${{ steps.gate.outputs.skip == 'false' && env.AZURE_CLIENT_ID != '' && env.AZURE_TENANT_ID != '' && env.AZURE_SUBSCRIPTION_ID != '' }}
+        uses: azure/login@v2
+        with:
+          client-id: ${{ env.AZURE_CLIENT_ID }}
+          tenant-id: ${{ env.AZURE_TENANT_ID }}
+          subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
+          client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
+
+      - name: Sign in to Azure (credentials JSON secret)
+        if: ${{ steps.gate.outputs.skip == 'false' && (env.AZURE_CLIENT_ID == '' || env.AZURE_TENANT_ID == '' || env.AZURE_SUBSCRIPTION_ID == '') }}
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Set up kubectl
+        if: steps.gate.outputs.skip == 'false'
+        uses: azure/setup-kubectl@v4
+
+      - name: Configure kubeconfig for AKS
+        if: steps.gate.outputs.skip == 'false'
+        env:
+          USE_ADMIN: ${{ env.AKS_USE_ADMIN_KUBECONFIG }}
+        run: |
+          set -euo pipefail
+          ARGS=(--resource-group "$AKS_RESOURCE_GROUP" --name "$AKS_CLUSTER_NAME" --overwrite-existing)
+          if [ "${USE_ADMIN:-}" = "true" ]; then ARGS+=(--admin); fi
+          az aks get-credentials "${ARGS[@]}"
+
+      - name: Apply manifests to Argo CD namespace
+        if: steps.gate.outputs.skip == 'false'
+        run: kubectl apply -n argocd -f gitops/argocd/applications/
+
+  verify-main:
+    name: Production — verify health & automatic rollback
+    needs: [changes, build, argocd-apply]
+    if: |
+      always() &&
+      needs.argocd-apply.result == 'success' &&
+      (needs.build.result == 'success' || needs.build.result == 'skipped') &&
+      (
+        github.event_name == 'workflow_dispatch' ||
+        (github.event_name == 'push' && github.ref == 'refs/heads/main' && (needs.changes.outputs.app == 'true' || needs.changes.outputs.gitops == 'true'))
+      )
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      ARGOCD_CLI_VERSION: v2.12.6
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install PyYAML
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq python3-yaml
+
+      - name: Load project configuration
+        run: python3 gitops/apply-project-config.py --github-env >> "$GITHUB_ENV"
+
+      - name: Check AKS configuration
+        id: gate
+        run: |
+          if [ -z "${AKS_CLUSTER_NAME:-}" ] || [ -z "${AKS_RESOURCE_GROUP:-}" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::Skipping production verify — no AKS in gitops/project.yaml."
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set verify targets from branch
+        if: steps.gate.outputs.skip == 'false'
+        run: |
+          BR="${GITHUB_REF_NAME}"
+          echo "VERIFY_NAMESPACE=${BR}" >> "$GITHUB_ENV"
+          echo "VERIFY_ARGO_APP=${ARGO_APP_PREFIX}-${BR}" >> "$GITHUB_ENV"
+          echo "VERIFY_DEPLOYMENT=${ARGO_APP_PREFIX}-${BR}-${HELM_CHART_NAME}" >> "$GITHUB_ENV"
+
+      - name: Sign in to Azure (service principal from project.yaml)
+        if: ${{ steps.gate.outputs.skip == 'false' && env.AZURE_CLIENT_ID != '' && env.AZURE_TENANT_ID != '' && env.AZURE_SUBSCRIPTION_ID != '' }}
+        uses: azure/login@v2
+        with:
+          client-id: ${{ env.AZURE_CLIENT_ID }}
+          tenant-id: ${{ env.AZURE_TENANT_ID }}
+          subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
+          client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
+
+      - name: Sign in to Azure (credentials JSON secret)
+        if: ${{ steps.gate.outputs.skip == 'false' && (env.AZURE_CLIENT_ID == '' || env.AZURE_TENANT_ID == '' || env.AZURE_SUBSCRIPTION_ID == '') }}
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Set up kubectl
+        if: steps.gate.outputs.skip == 'false'
+        uses: azure/setup-kubectl@v4
+
+      - name: Configure kubeconfig for AKS
+        if: steps.gate.outputs.skip == 'false'
+        env:
+          USE_ADMIN: ${{ env.AKS_USE_ADMIN_KUBECONFIG }}
+        run: |
+          set -euo pipefail
+          ARGS=(--resource-group "$AKS_RESOURCE_GROUP" --name "$AKS_CLUSTER_NAME" --overwrite-existing)
+          if [ "${USE_ADMIN:-}" = "true" ]; then ARGS+=(--admin); fi
+          az aks get-credentials "${ARGS[@]}"
+
+      - name: Install Argo CD CLI (core / rollback)
+        if: steps.gate.outputs.skip == 'false'
+        run: |
+          set -euo pipefail
+          curl -sSL -o /usr/local/bin/argocd "https://github.com/argoproj/argo-cd/releases/download/${ARGOCD_CLI_VERSION}/argocd-linux-amd64"
+          chmod +x /usr/local/bin/argocd
+          argocd version --client
+
+      - name: Run rollout, Argo health, smoke test; rollback if failed
+        if: steps.gate.outputs.skip == 'false'
+        run: bash gitops/ci/verify-main.sh

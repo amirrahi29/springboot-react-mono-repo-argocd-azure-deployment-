@@ -1,0 +1,6 @@
+spring:
+  application:
+    name: rahi-chat-app
+
+server:
+  port: ${SERVER_PORT:8081}

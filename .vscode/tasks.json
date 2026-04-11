@@ -1,0 +1,29 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "backend: classes (includes frontend build)",
+      "type": "shell",
+      "command": "./gradlew classes --no-daemon",
+      "options": {
+        "cwd": "${workspaceFolder}/backend",
+        "env": {}
+      },
+      "group": "build",
+      "presentation": { "reveal": "silent" },
+      "problemMatcher": []
+    },
+    {
+      "label": "backend: bootRun (recommended — full Gradle classpath)",
+      "type": "shell",
+      "command": "./gradlew bootRun --no-daemon",
+      "options": {
+        "cwd": "${workspaceFolder}/backend",
+        "env": {}
+      },
+      "group": "none",
+      "presentation": { "reveal": "always", "panel": "dedicated" },
+      "problemMatcher": []
+    }
+  ]
+}

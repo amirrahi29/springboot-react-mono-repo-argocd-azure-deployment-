@@ -1,0 +1,9 @@
+{
+  "java.import.gradle.enabled": true,
+  "java.import.gradle.wrapper.enabled": true,
+  "java.configuration.updateBuildConfiguration": "automatic",
+  "java.project.resourceFilters": ["node_modules", "**/node_modules/**", ".git"],
+  "java.compile.nullAnalysis.mode": "automatic",
+  "java.debug.settings.enableRunDebugCodeLens": false,
+  "java.debug.settings.hotCodeReplace": "auto"
+}

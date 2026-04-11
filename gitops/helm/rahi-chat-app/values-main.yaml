@@ -1,0 +1,7 @@
+replicaCount: 2
+env:
+  NODE_ENV: production
+  DEPLOY_ENV: main
+image:
+  repository: rahicontaineregistry.azurecr.io/rahi-chat-app
+  tag: main-24fe0ce

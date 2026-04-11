@@ -1,0 +1,17 @@
+replicaCount: 1
+image:
+  repository: rahicontaineregistry.azurecr.io/rahi-chat-app
+  tag: latest
+  pullPolicy: IfNotPresent
+service:
+  type: LoadBalancer
+  port: 8081
+env:
+  NODE_ENV: production
+  DEPLOY_ENV: default
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    memory: 256Mi

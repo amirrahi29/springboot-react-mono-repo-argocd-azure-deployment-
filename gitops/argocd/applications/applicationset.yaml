@@ -1,0 +1,42 @@
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: rahi-chat-app
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: rahi-chat-app-gitops
+spec:
+  generators:
+  - list:
+      elements:
+      - env: dev
+      - env: main
+      - env: staging
+      - env: uat
+  template:
+    metadata:
+      name: rahi-chat-app-{{env}}
+      namespace: argocd
+      finalizers:
+      - resources-finalizer.argocd.argoproj.io
+      labels:
+        app.kubernetes.io/part-of: rahi-chat-app-gitops
+    spec:
+      project: rahi-chat-app-{{env}}
+      source:
+        repoURL: https://github.com/amirrahi29/springboot-argocd-deployment.git
+        targetRevision: '{{env}}'
+        path: gitops/helm/rahi-chat-app
+        helm:
+          valueFiles:
+          - values.yaml
+          - values-{{env}}.yaml
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: '{{env}}'
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+        - CreateNamespace=true

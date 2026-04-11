@@ -1,0 +1,60 @@
+plugins {
+	id 'java'
+	id 'org.springframework.boot' version '4.0.5'
+	id 'io.spring.dependency-management' version '1.1.7'
+	id 'com.github.node-gradle.node' version '7.1.0'
+}
+
+group = 'com.chat.app'
+version = '0.0.1-SNAPSHOT'
+
+java {
+	toolchain {
+		languageVersion = JavaLanguageVersion.of(17)
+	}
+}
+
+repositories {
+	mavenCentral()
+}
+
+dependencies {
+	implementation 'org.springframework.boot:spring-boot-starter-webmvc'
+	testImplementation 'org.springframework.boot:spring-boot-starter-webmvc-test'
+	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+tasks.named('test') {
+	useJUnitPlatform()
+}
+
+def frontendDir = file("${projectDir}/../frontend")
+
+node {
+	download = true
+	version = "22.12.0"
+	distBaseUrl = "https://nodejs.org/dist"
+	workDir = file("${projectDir}/.gradle/nodejs")
+	nodeProjectDir = frontendDir
+}
+
+tasks.named('nodeSetup') { enabled = !project.hasProperty('skipWeb') }
+tasks.named('npmInstall') { enabled = !project.hasProperty('skipWeb') }
+
+tasks.register('npmRunBuild', com.github.gradle.node.npm.task.NpmTask) {
+	args = ['run', 'build']
+	dependsOn tasks.named('npmInstall')
+	enabled = !project.hasProperty('skipWeb')
+}
+
+tasks.register('syncWebDist', Sync) {
+	dependsOn npmRunBuild
+	mustRunAfter processResources
+	from("${frontendDir}/dist")
+	into("${buildDir}/resources/main/static")
+	enabled = !project.hasProperty('skipWeb')
+}
+
+tasks.named('classes') {
+	dependsOn syncWebDist
+}
