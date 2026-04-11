@@ -1,3 +1,6 @@
 env:
   NODE_ENV: staging
   DEPLOY_ENV: staging
+image:
+  repository: rahicontaineregistry.azurecr.io/rahi-chat-app
+  tag: staging-b9d2d68
