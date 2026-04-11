@@ -27,11 +27,11 @@ rollback() {
   fi
   export ARGOCD_NAMESPACE="${ARGO_NS:-argocd}"
   if ! kubectl get configmap argocd-cm -n "$ARGOCD_NAMESPACE" >/dev/null 2>&1; then
-    echo "::warning::No ConfigMap argocd-cm in namespace $ARGOCD_NAMESPACE — set VERIFY_ARGO_NS if Argo CD is elsewhere."
+    echo "::warning::Skip Argo rollback: no argocd-cm in namespace \"$ARGOCD_NAMESPACE\". Set \"argocd.namespace\" in gitops/project.yaml to the namespace where Argo CD is installed."
+    return 0
   fi
-  # CLI v2.12+: no global --namespace; Application CR lives in --app-namespace (rollback/login use Kubernetes API with --core).
   if ! argocd login --core; then
-    echo "::warning::argocd login --core failed; ensure CI kube identity can read $ARGOCD_NAMESPACE (e.g. argocd-cm)."
+    echo "::warning::argocd login --core failed; check RBAC to ConfigMaps in $ARGOCD_NAMESPACE."
     return 1
   fi
   if ! argocd app rollback "$ARGO_APP" --app-namespace "$ARGOCD_NAMESPACE"; then
@@ -111,8 +111,25 @@ if [[ "$argo_fast_path" != "1" && ( "$health" != "Healthy" || "$sync" != "Synced
 fi
 
 APP_PORT="${VERIFY_APP_PORT:-8081}"
-URL="http://${DEPLOY}.${NS_APP}.svc.cluster.local:${APP_PORT}/api/healthz"
-echo "Smoke Job: GET $URL"
+# Prefer ready Pod IP (same path as probes); Endpoints first, then pod list (EndpointSlice / timing gaps).
+SMOKE_IP=$(kubectl get endpoints "$DEPLOY" -n "$NS_APP" -o jsonpath='{.subsets[0].addresses[0].ip}' 2>/dev/null || true)
+if [[ -z "${SMOKE_IP}" ]]; then
+  SMOKE_IP=$(kubectl get pods -n "$NS_APP" -l "app.kubernetes.io/instance=${P}-${NS_APP}" -o jsonpath='{.items[0].status.podIP}' 2>/dev/null || true)
+fi
+if [[ -n "${SMOKE_IP}" ]]; then
+  if [[ "${SMOKE_IP}" == *:* ]]; then
+    URL="http://[${SMOKE_IP}]:${APP_PORT}/api/healthz"
+    CURL_FAMILY="-6"
+  else
+    URL="http://${SMOKE_IP}:${APP_PORT}/api/healthz"
+    CURL_FAMILY="-4"
+  fi
+  echo "Smoke Job: GET $URL (direct pod IP, deployment $DEPLOY)"
+else
+  URL="http://${DEPLOY}.${NS_APP}.svc.cluster.local:${APP_PORT}/api/healthz"
+  CURL_FAMILY="-4"
+  echo "Smoke Job: GET $URL (Service DNS — no pod IP yet)"
+fi
 kubectl delete job -n "$NS_APP" "$SMOKE_JOB" --ignore-not-found >/dev/null 2>&1 || true
 
 kubectl apply -f - <<EOF
@@ -130,12 +147,13 @@ spec:
       containers:
         - name: curl
           image: curlimages/curl:8.5.0
+          env:
+            - name: SMOKE_URL
+              value: "${URL}"
           command:
-            - curl
-            - -sfS
-            - --connect-timeout
-            - "30"
-            - ${URL}
+            - /bin/sh
+            - -c
+            - exec curl ${CURL_FAMILY} -sfS --connect-timeout 30 -H 'Accept: application/json' "\$SMOKE_URL"
 EOF
 
 smoke_ok=0
@@ -149,6 +167,11 @@ for _ in $(seq 1 40); do
   if [[ -n "${failed:-}" && "${failed:-0}" -ge 1 ]] 2>/dev/null; then
     echo "::error::Smoke Job failed."
     kubectl logs -n "$NS_APP" "job/$SMOKE_JOB" --all-containers=true 2>/dev/null || true
+    echo "::group::Debug: image / endpoints / pods ($NS_APP)"
+    kubectl get deployment "$DEPLOY" -n "$NS_APP" -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null && echo || true
+    kubectl get endpoints "$DEPLOY" -n "$NS_APP" -o yaml 2>/dev/null | head -40 || true
+    kubectl get pods -n "$NS_APP" -l "app.kubernetes.io/instance=${P}-${NS_APP}" -o wide 2>/dev/null || true
+    echo "::endgroup::"
     kubectl delete job -n "$NS_APP" "$SMOKE_JOB" --ignore-not-found || true
     rollback || true
     exit 1

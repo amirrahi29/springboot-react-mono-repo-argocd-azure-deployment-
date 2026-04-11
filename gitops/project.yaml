@@ -21,6 +21,7 @@ helm:
 
 argocd:
   app_prefix: rahi-chat-app
+  # namespace: argocd  # optional; verify/rollback need argocd-cm here (default argocd)
 
 aks:
   resource_group: RahiResource
