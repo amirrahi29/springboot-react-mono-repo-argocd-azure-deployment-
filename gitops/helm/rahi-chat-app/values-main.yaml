@@ -4,4 +4,4 @@ env:
   DEPLOY_ENV: main
 image:
   repository: rahicontaineregistry.azurecr.io/rahi-chat-app
-  tag: main-24fe0ce
+  tag: main-d544032
