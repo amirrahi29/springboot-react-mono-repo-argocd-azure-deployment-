@@ -112,14 +112,24 @@ if [[ "$argo_fast_path" != "1" && ( "$health" != "Healthy" || "$sync" != "Synced
 fi
 
 APP_PORT="${VERIFY_APP_PORT:-8081}"
-# Hit ready Pod IP via Endpoints (same path as readiness probes); avoids Service DNS / dual-stack quirks vs kubelet.
-EP_IP=$(kubectl get endpoints "$DEPLOY" -n "$NS_APP" -o jsonpath='{.subsets[0].addresses[0].ip}' 2>/dev/null || true)
-if [[ -n "${EP_IP}" ]]; then
-  URL="http://${EP_IP}:${APP_PORT}/api/healthz"
-  echo "Smoke Job: GET $URL (Endpoints -> Pod IP, service $DEPLOY)"
+# Pod IP: Endpoints first, then pod list (YAML note: never use bare "-4" in Job command[] — K8s unmarshals it as a number).
+SMOKE_IP=$(kubectl get endpoints "$DEPLOY" -n "$NS_APP" -o jsonpath='{.subsets[0].addresses[0].ip}' 2>/dev/null || true)
+if [[ -z "${SMOKE_IP}" ]]; then
+  SMOKE_IP=$(kubectl get pods -n "$NS_APP" -l "app.kubernetes.io/instance=${P}-${NS_APP}" -o jsonpath='{.items[0].status.podIP}' 2>/dev/null || true)
+fi
+if [[ -n "${SMOKE_IP}" ]]; then
+  if [[ "${SMOKE_IP}" == *:* ]]; then
+    URL="http://[${SMOKE_IP}]:${APP_PORT}/api/healthz"
+    CURL_FAMILY="-6"
+  else
+    URL="http://${SMOKE_IP}:${APP_PORT}/api/healthz"
+    CURL_FAMILY="-4"
+  fi
+  echo "Smoke Job: GET $URL (pod IP, deployment $DEPLOY)"
 else
   URL="http://${DEPLOY}.${NS_APP}.svc.cluster.local:${APP_PORT}/api/healthz"
-  echo "Smoke Job: GET $URL (Service DNS — no Endpoints yet)"
+  CURL_FAMILY="-4"
+  echo "Smoke Job: GET $URL (Service DNS — no pod IP yet)"
 fi
 kubectl delete job -n "$NS_APP" "$SMOKE_JOB" --ignore-not-found >/dev/null 2>&1 || true
 
@@ -139,14 +149,14 @@ spec:
         - name: curl
           image: curlimages/curl:8.5.0
           command:
-            - curl
-            - -4
-            - -sfS
-            - --connect-timeout
+            - "curl"
+            - "${CURL_FAMILY}"
+            - "-sfS"
+            - "--connect-timeout"
             - "30"
-            - -H
-            - Accept: application/json
-            - ${URL}
+            - "-H"
+            - "Accept: application/json"
+            - "${URL}"
 EOF
 
 smoke_ok=0
@@ -160,6 +170,11 @@ for _ in $(seq 1 40); do
   if [[ -n "${failed:-}" && "${failed:-0}" -ge 1 ]] 2>/dev/null; then
     echo "::error::Smoke Job failed."
     kubectl logs -n "$NS_APP" "job/$SMOKE_JOB" --all-containers=true 2>/dev/null || true
+    echo "::group::Debug: image / endpoints / pods ($NS_APP)"
+    kubectl get deployment "$DEPLOY" -n "$NS_APP" -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null && echo || true
+    kubectl get endpoints "$DEPLOY" -n "$NS_APP" -o yaml 2>/dev/null | head -40 || true
+    kubectl get pods -n "$NS_APP" -l "app.kubernetes.io/instance=${P}-${NS_APP}" -o wide 2>/dev/null || true
+    echo "::endgroup::"
     kubectl delete job -n "$NS_APP" "$SMOKE_JOB" --ignore-not-found || true
     rollback || true
     exit 1
