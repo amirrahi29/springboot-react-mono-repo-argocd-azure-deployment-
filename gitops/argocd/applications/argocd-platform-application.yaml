@@ -8,7 +8,7 @@ metadata:
 spec:
   project: rahi-chat-app-platform
   source:
-    repoURL: https://github.com/amirrahi29/springboot-argocd-deployment.git
+    repoURL: https://github.com/amirrahi29/springboot-react-mono-repo-argocd-azure-deployment-.git
     targetRevision: main
     path: gitops/argocd/platform
   destination:

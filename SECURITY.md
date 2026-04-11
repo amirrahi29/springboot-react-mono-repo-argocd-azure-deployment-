@@ -2,7 +2,7 @@
 
 ## Reporting
 
-Report suspected vulnerabilities via [GitHub Security Advisories](https://github.com/amirrahi29/springboot-argocd-deployment/security/advisories/new) instead of a public issue. Include reproduction steps, affected versions or branches, and impact if known.
+Report suspected vulnerabilities via [GitHub Security Advisories](https://github.com/amirrahi29/springboot-react-mono-repo-argocd-azure-deployment-/security/advisories/new) instead of a public issue. Include reproduction steps, affected versions or branches, and impact if known.
 
 ## Practices in this repo
 

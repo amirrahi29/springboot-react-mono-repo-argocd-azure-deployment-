@@ -1,6 +1,6 @@
 # Default Git branch: main — Argo platform app + kubectl apply use platform_branch.
 git:
-  repo_url: https://github.com/amirrahi29/springboot-argocd-deployment.git
+  repo_url: https://github.com/amirrahi29/springboot-react-mono-repo-argocd-azure-deployment-.git
   platform_branch: main
   platform_path: gitops/argocd/platform
 

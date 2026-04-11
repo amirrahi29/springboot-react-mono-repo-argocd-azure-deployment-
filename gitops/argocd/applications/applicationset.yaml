@@ -24,7 +24,7 @@ spec:
     spec:
       project: rahi-chat-app-{{env}}
       source:
-        repoURL: https://github.com/amirrahi29/springboot-argocd-deployment.git
+        repoURL: https://github.com/amirrahi29/springboot-react-mono-repo-argocd-azure-deployment-.git
         targetRevision: '{{env}}'
         path: gitops/helm/rahi-chat-app
         helm:
