@@ -3,11 +3,10 @@
 
 ## 📸 Screenshots
 
-### 🔹 Application UI
-![App UI](https://github.com/user-attachments/assets/5d455e44-1c88-4956-9870-aa5f6876d31f)
-
-### 🔹 Deployment / Dashboard
-![Deployment](https://github.com/user-attachments/assets/9a226dc3-3f84-4979-819d-64d3b99fab8c)
+<p align="center">
+  <img src="https://github.com/user-attachments/assets/5d455e44-1c88-4956-9870-aa5f6876d31f" width="48%" />
+  <img src="https://github.com/user-attachments/assets/9a226dc3-3f84-4979-819d-64d3b99fab8c" width="48%" />
+</p>
 
 ---
 
